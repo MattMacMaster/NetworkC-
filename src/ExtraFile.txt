@@ -1,0 +1,121 @@
+   /*
+// Driver code 
+void ipv4TCP() {
+    int sockfd;
+    char buffer[MAXLINE];
+
+    int number = userInput() * 8; // total bits, convert to number of bytes
+    std::vector<unsigned char> fileData = readFile(FILENAME);
+    
+    // Make sure we only send as much as we need
+    if (number > fileData.size()) {
+        number = fileData.size();
+    }
+
+    // Create the data packet
+    const unsigned char *data = fileData.data();
+    
+    struct sockaddr_in servaddr;
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_port = htons(PORT);
+    servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    // Connect to the server
+    if (connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+        perror("Connection failed - Make sure Receiver is running");
+        exit(EXIT_FAILURE);
+    }
+
+    // Send the data
+    int bytes_sent = send(sockfd, data, number, 0);
+    if (bytes_sent < 0) {
+        perror("Send failed");
+        close(sockfd);
+        return;
+    }
+    std::cout << "Sent " << bytes_sent << " bits" << std::endl;
+
+    // Wait for acknowledgment or response from server
+    int bytes_received = recv(sockfd, buffer, MAXLINE, 0);
+    if (bytes_received < 0) {
+        perror("Receive failed");
+    } else {
+        buffer[bytes_received] = '\0'; // Null-terminate for safe printing
+        std::cout << "Received acknowledgment: " << buffer << std::endl;
+    }
+
+    close(sockfd);
+}
+*/
+/*
+void ipv6TCP() {
+    int sockfd;
+    struct sockaddr_in6 servaddr;
+    char buffer[MAXLINE];
+
+    // Create socket for IPv6 TCP
+    if ((sockfd = socket(AF_INET6, SOCK_STREAM, 0)) < 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Clear server address structure
+    memset(&servaddr, 0, sizeof(servaddr));
+
+    // Setup server information for IPv6
+    servaddr.sin6_family = AF_INET6;  // IPv6
+    servaddr.sin6_port = htons(PORT);  // Port to connect to
+
+    // Use the loopback address for IPv6 (::1)
+    //Struggling to get any othre IP other than local direct
+    if (inet_pton(AF_INET6, "::1", &servaddr.sin6_addr) <= 0) {
+        perror("Invalid IPv6 address");
+        exit(EXIT_FAILURE);
+    }
+
+    // Connect to the server (receiver)
+    if (connect(sockfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+        perror("Connection failed");
+        exit(EXIT_FAILURE);
+    }
+
+    int number = userInput() * 8; // total bits, convert to number of bytes
+    std::vector<unsigned char> fileData = readFile(FILENAME);
+    
+    // Make sure we only send as much as we need
+    if (number > fileData.size()) {
+        number = fileData.size();
+    }
+
+    // Create the data packet
+    const unsigned char *data = fileData.data();
+
+    // Send data over TCP
+    int bytes_sent = send(sockfd, data, number, 0);
+    if (bytes_sent < 0) {
+        perror("Send failed");
+    } else {
+        std::cout << "Sent " << bytes_sent << " bytes" << std::endl;
+    }
+
+    // Wait for acknowledgment or response from server
+    int bytes_received = recv(sockfd, buffer, MAXLINE, 0);
+    if (bytes_received < 0) {
+        perror("Receive failed");
+    } else {
+        buffer[bytes_received] = '\0'; // Null-terminate for safe printing
+        std::cout << "Received acknowledgment: " << buffer << std::endl;
+    }
+
+    close(sockfd);
+}
+   
+   
+    //ipv4TCP(); - Not needed
+    //ipv6TCP(); - Not Needed
