@@ -1,243 +1,145 @@
-#include <bits/stdc++.h> 
-#include <stdlib.h> 
-#include <unistd.h> 
-#include <string.h> 
-#include <sys/types.h> 
-#include <sys/socket.h> 
-#include <arpa/inet.h> 
-#include <netinet/in.h> 
+
 #include "../include/PacketHeader.h"
+#include <arpa/inet.h>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <netinet/in.h>
+#include <stdexcept>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <vector>
 #include <zlib.h>
 
-typedef unsigned char BYTE;
-#define MAXLINE 4096 
+using CSTR = const char *;
+using BYTE = unsigned char;
+using BYTES = unsigned char *;
+using CBYTES = const unsigned char *; // just tryna shorten some code and make
+                                      // our program slightly more readable
 
-void factoryEnd(unsigned char *buffer) {
-    memset(buffer, 0, 16); // Clear buffer
+// Using static to make the constants public only to this file
+static const uint32_t MAX_PAYLOAD_SIZE = 4096;
+static const uint32_t CRC_1_BUFFER_INDEX = 8; // = 12 leads to crc error
+static const uint32_t PAYLOAD_START_INDEX = 12;
+static const uint32_t BUFFER_META_DATA_SIZE = 16; // size of all but payload
 
-    PacketHeader header;
+struct SenderArgs {
+  const char *hostname;
+  uint32_t port;
+  std::filesystem::path file_path;
 
-    header.setType(buffer, 1);     // Type = 1 (PTYPE_DATA)
-    header.setTR(buffer, false);   // TR = 0 (not truncated)
-    header.setWin(buffer, 0);      // Window = 0
-    header.setSeq(buffer, 0);      // Ending frame seq = 1
-    header.setLen(buffer, 0);      // Length = 0 (no payload)
-
-    // Timestamp (4 bytes)
-    buffer[4] = buffer[5] = buffer[6] = buffer[7] = 0;
-
-    // CRC1 placeholder
-    buffer[8] = buffer[9] = buffer[10] = buffer[11] = 0;
-
-    // Compute CRC1 over first 12 bytes
-    uint32_t crc1 = crc32(0L, Z_NULL, 0);
-    crc1 = crc32(crc1, buffer, 12);
-
-    header.setCRC(buffer, crc1);
-
-    // CRC2 placeholder (empty payload)
-    uint32_t crc2 = crc32(0L, Z_NULL, 0);
-
-    // Store CRC2 in big-endian order
-    buffer[12] = (crc2 >> 24) & 0xFF;
-    buffer[13] = (crc2 >> 16) & 0xFF;
-    buffer[14] = (crc2 >> 8) & 0xFF;
-    buffer[15] = crc2 & 0xFF;
-}
-
-void factoryPayload(unsigned char *buffer, const char *payload, size_t payload_len) {
-    memset(buffer, 0, 16 + payload_len); // Clear buffer + space for payload
-
-    PacketHeader *header = new PacketHeader();
-
-    // Header fields
-    header->setType(buffer, 1);       // Type = 1 (PTYPE_DATA)
-    header->setTR(buffer, false);     // TR = 0
-    header->setWin(buffer, 0);        // Window = 0
-    header->setSeq(buffer, 0);        // Sequence number = 0
-    header->setLen(buffer, static_cast<uint>(payload_len)); // Length = payload length
-
-    // Timestamp (4 bytes)
-    buffer[4] = buffer[5] = buffer[6] = buffer[7] = 0;
-
-    // CRC1 placeholder (zeroed)
-    buffer[8] = buffer[9] = buffer[10] = buffer[11] = 0;
-
-    // Compute CRC1 over first 12 bytes
-    uint32_t crc1 = crc32(0L, Z_NULL, 0);
-    crc1 = crc32(crc1, buffer, 12);
-    header->setCRC(buffer, crc1); // Store in little-endian
-
-    // Copy payload immediately after header + CRC1
-    if (payload_len > 0) {
-        memcpy(buffer + 12, payload, payload_len);
+  SenderArgs(int arg_count, char *args[]) {
+    if (arg_count < 2) {
+      std::cerr << "Usage: ./sender [-f filename] [hostname] [port] "
+                << std::endl;
+      std::exit(1);
     }
+    if (strcmp(args[0], "-f")) {
+      // also check if path exists after -f flag, can use filesystem for that
+      file_path = args[1];
+      if (!std::filesystem::exists(file_path)) {
+        throw std::runtime_error("Error, file (path) not found");
+      }
+      hostname = args[2];
+      port = atoi(args[3]);
 
-    // Compute CRC2 over the payload
-    uint32_t crc2 = crc32(0L, Z_NULL, 0);
-    if (payload_len > 0) {
-        crc2 = crc32(crc2, reinterpret_cast<const unsigned char*>(payload), payload_len);
-    }
-
-    // Store CRC2 after header + payload in little-endian
-    size_t crc2_offset = 12 + payload_len;
-    buffer[crc2_offset]     = crc2 & 0xFF;
-    buffer[crc2_offset + 1] = (crc2 >> 8) & 0xFF;
-    buffer[crc2_offset + 2] = (crc2 >> 16) & 0xFF;
-    buffer[crc2_offset + 3] = (crc2 >> 24) & 0xFF;
-
-    delete header;
-}
-
-std::vector<BYTE> readFile(const char* filename)
-{
-    // open the file:
-    std::ifstream file(filename, std::ios::binary);
-
-    // get its size:
-    file.seekg(0, std::ios::end);
-    std::streampos fileSize = file.tellg();
-    file.seekg(0, std::ios::beg);
-
-    // read the data:
-    std::vector<BYTE> fileData(fileSize);
-    file.read((char*) &fileData[0], fileSize);
-    return fileData;
-}
-
-// Driver code 
-void ipv4UDP(const char* hostname, int port, const char* file) {
-    int sockfd; 
-
-    //optimization be just read the x bytes instead of all of them
-    //Read from binary file
-    std::vector<BYTE> payload = readFile(file); //This needs to be file
-    // Read binary file into vector
-
-     // Allocate buffer for header + payload + CRC2
-    size_t buffer_size = 16 + payload.size(); // 16 bytes header + timestamp + CRC2
-    unsigned char* buffer = new unsigned char[buffer_size];
-
-    // Call factoryPayload with pointer to buffer and payload
-    factoryPayload(buffer, reinterpret_cast<const char*>(payload.data()), payload.size());
-
-    struct sockaddr_in servaddr; 
-    // Creating socket file descriptor 
-    if ( (sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0 ) { 
-        perror("socket creation failed"); 
-        exit(EXIT_FAILURE); 
-    } 
-    //Clearing memory
-    memset(&servaddr, 0, sizeof(servaddr)); 
-    // Filling server information 
-    servaddr.sin_family = AF_INET; 
-    servaddr.sin_port = htons(port);
-    servaddr.sin_addr.s_addr = inet_addr(hostname); //This needs to be host name
-
-    int n;
-    socklen_t len; 
-
-    //Sending Packet
-    sendto(sockfd, (const char *)buffer, payload.size(), 
-        MSG_CONFIRM, (const struct sockaddr *) &servaddr,  
-            sizeof(servaddr)); 
-
-
-    //Data Prep for empty
-    //char buffer[MAXLINE]; 
-    // Clear buffer 
-    //memset(buffer, 0, MAXLINE);
-    //We will need to send payload first here then Ending file
-    //factoryEnd((unsigned char*)buffer); // Ending File
-    //TODO SEND EMPTY PACKET TO END CONNECTION
-
-    close(sockfd); 
-}
-void ipv6UDP(const char* hostname, int port, const char* file){
-    int sockfd;
-    char buffer[MAXLINE];
-
-    std::vector<BYTE> fileData = readFile(file); //This needs to be file
-    std::string temp;
-    for (int i = 0; i < fileData.size(); ++i) // read bits into temp
-        temp.push_back(fileData[i]);
-    const char *payload = temp.c_str();
-
-    struct sockaddr_in6 servaddr;
-    // Creating socket file descriptor for IPv6
-    if ((sockfd = socket(AF_INET6, SOCK_DGRAM, 0)) < 0) {
-        perror("socket creation failed");
-        exit(EXIT_FAILURE);
-    }
-
-    // Clearing memory
-    memset(&servaddr, 0, sizeof(servaddr));
-
-    // Filling server information for IPv6
-    servaddr.sin6_family = AF_INET6; // IPv6
-    servaddr.sin6_port = htons(port);
-    
-    // Use the loopback address for IPv6 (::1)
-    if (inet_pton(AF_INET6, hostname, &servaddr.sin6_addr) <= 0) {
-        perror("Invalid IPv6 address");
-        exit(EXIT_FAILURE);
-    }
-
-    //Send a Packet
-    //TODO WE NEED TO USE PA1 here, append it all
-    //Then send it
-    int bytes_sent = sendto(sockfd, (const char *)payload, fileData.size(), MSG_CONFIRM, 
-                            (const struct sockaddr *) &servaddr, sizeof(servaddr));
-    
-    if (bytes_sent < 0) {
-        perror("Send failed");
     } else {
-            std::cout<< "Msg sent:"<<payload <<std::endl; 
+      hostname = args[0];
+      port = atoi(args[1]);
     }
+  }
+};
 
-    close(sockfd);
+enum SegmentType {
+  PTYPE_DATA = 1,
+  PTYPE_ACK = 2,
+  PTYPE_NACK = 3,
+};
+
+std::vector<std::byte> read_payload_to_bytes(std::string file_name) {
+  uint32_t length = std::filesystem::file_size(file_name);
+  if (length == 0) {
+    return {};
+  }
+
+  std::vector<std::byte> buffer(length);
+  std::ifstream file(file_name, std::ios_base::binary);
+  file.read(reinterpret_cast<char *>(buffer.data()), length);
+  file.close();
+  return buffer;
 }
 
+void payload_factory(BYTES buffer, CSTR payload, size_t payload_len) {
+  memset(buffer, 0, BUFFER_META_DATA_SIZE + payload_len);
+  uint32_t payload_length = static_cast<uint32_t>(payload_len);
+  uint32_t crc1 = crc32(0L, Z_NULL, 0);
 
-//Expecting order of receiver
-//With the data
-//empty data and sequence number 1 is the end of tranmission
+  PacketHeader header;
 
-//Means we need PA1
-//PA1 needs a payload section added
-//PA1 needs a way 
+  header.setType(buffer, SegmentType::PTYPE_DATA);
+  header.setTR(buffer, false);
+  header.setLen(buffer, payload_length);
 
-int main(int argc, char* argv[]) { 
-    if (argc < 3) {
-        std::cerr << "Usage: ./sender [hostname] [port] [-f filename]" << std::endl;
-        return 1;
-    }
+  // Compute CRC1 over first 8 bytes (start of type ---> end of Timestamp)
+  crc1 = crc32(crc1, buffer, CRC_1_BUFFER_INDEX);
+  header.setCRC(buffer, crc1); // Store in little-endian
 
-    const char* hostname = argv[1];
-    int port = std::stoi(argv[2]);
-    const char* filename = "";
+  // Copy payload immediately after header + CRC1
+  if (payload_len > 0) {
+    memcpy(buffer + 12, payload, payload_len);
+  }
 
-    // Parse optional -f flag and filename
-    for (int i = 3; i < argc; i++) {
-        if (std::string(argv[i]) == "-f") {
-            if (i + 1 < argc) {
-                filename = argv[i + 1];  // Set filename to the next argument
-                i++;  // Skip next argument since it's already used as filename
-            } else {
-                std::cerr << "Error: Missing filename after -f flag." << std::endl;
-                return 1;
-            }
-        }
-    }
-    std::cout << "hostname: " << hostname << std::endl;
-    std::cout << "PORT: " << port << std::endl;
-    std::cout << "filename: " << filename << std::endl;
+  // Compute CRC2 over the payload
+  uint32_t crc2 = crc32(0L, Z_NULL, 0);
+  if (payload_len > 0) {
+    crc2 = crc32(crc2, reinterpret_cast<const unsigned char *>(payload),
+                 payload_len);
+  }
 
-    //TODO - detect which one to run
-    //And switch to that option
-    ipv4UDP(hostname,port,filename); 
-    //ipv6UDP(hostname,port,filename);
+  size_t crc2_offset = 12 + payload_len;
+  buffer[crc2_offset] = crc2 & 0xFF;
+  buffer[crc2_offset + 1] = (crc2 >> 8) & 0xFF;
+  buffer[crc2_offset + 2] = (crc2 >> 16) & 0xFF;
+  buffer[crc2_offset + 3] = (crc2 >> 24) & 0xFF;
+}
 
+void ipv4UDP(const char *hostname, int port, std::string file) {
+  std::vector<std::byte> payload = read_payload_to_bytes(file);
+  uint32_t payload_size = std::filesystem::file_size(file);
+  uint32_t buffer_size = BUFFER_META_DATA_SIZE + payload_size;
+  unsigned char *buffer = new unsigned char[buffer_size];
 
-    return 0; 
+  int sockfd;
+  if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    perror("socket creation failed");
+    exit(EXIT_FAILURE);
+  }
+
+  payload_factory(buffer, reinterpret_cast<const char *>(payload.data()),
+                  payload.size());
+
+  struct sockaddr_in servaddr;
+  memset(&servaddr, 0, sizeof(servaddr));
+  // Filling server information
+  servaddr.sin_family = AF_INET;
+  servaddr.sin_port = htons(port);
+  servaddr.sin_addr.s_addr = inet_addr(hostname);
+
+  sendto(sockfd, (const char *)buffer, payload_size, 0,
+         (const struct sockaddr *)&servaddr, sizeof(servaddr));
+
+  close(sockfd);
+}
+
+int main(int argc, char *argv[]) {
+  // Parsing command line args:
+  SenderArgs sender_args = SenderArgs(argc, argv);
+
+  // Passing commandline args to ipv4UDP sender
+  ipv4UDP(sender_args.hostname, sender_args.port,
+          sender_args.file_path.c_str());
+  return 0;
 }
