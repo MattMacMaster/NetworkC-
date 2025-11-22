@@ -1,5 +1,3 @@
-
-
 #include "../include/PacketHeader.h"
 #include <arpa/inet.h>
 #include <filesystem>
@@ -110,9 +108,9 @@ void payload_factory(BYTES buffer, CSTR payload, size_t payload_len) {
   buffer[crc2_offset + 3] = (crc2 >> 24) & 0xFF;
 }
 
-void ipv4UDP(const char *hostname, int port, std::filesystem::path file) {
+void ipv4UDP(const char *hostname, int port, fs::path file) {
   std::vector<std::byte> payload = read_payload_to_bytes(file);
-  uint32_t payload_size = std::filesystem::file_size(file);
+  uint32_t payload_size = fs::file_size(file);
 
   uint32_t buffer_size = BUFFER_META_DATA_SIZE + payload_size;
   unsigned char *buffer = new unsigned char[buffer_size];
