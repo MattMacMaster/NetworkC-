@@ -1,4 +1,5 @@
 
+
 #include "../include/PacketHeader.h"
 #include <arpa/inet.h>
 #include <filesystem>
@@ -14,6 +15,8 @@
 #include <vector>
 #include <zlib.h>
 
+namespace fs = std::filesystem;
+
 using CSTR = const char *;
 using BYTE = unsigned char;
 using BYTES = unsigned char *;
@@ -26,29 +29,30 @@ static const uint32_t CRC_1_BUFFER_INDEX = 8; // = 12 leads to crc error
 static const uint32_t PAYLOAD_START_INDEX = 12;
 static const uint32_t BUFFER_META_DATA_SIZE = 16; // size of all but payload
 
+// command line flags
+
 struct SenderArgs {
   const char *hostname;
   uint32_t port;
-  std::filesystem::path file_path;
+  fs::path file_path;
 
   SenderArgs(int arg_count, char *args[]) {
-    if (arg_count < 2) {
+    if (arg_count < 3) {
       std::cerr << "Usage: ./sender [-f filename] [hostname] [port] "
                 << std::endl;
       std::exit(1);
     }
-    if (strcmp(args[0], "-f")) {
-      // also check if path exists after -f flag, can use filesystem for that
-      file_path = args[1];
-      if (!std::filesystem::exists(file_path)) {
+    if (!strcmp(args[1], "-f")) {
+      file_path = args[2];
+      if (!fs::exists(file_path)) {
         throw std::runtime_error("Error, file (path) not found");
       }
-      hostname = args[2];
-      port = atoi(args[3]);
+      hostname = args[3];
+      port = atoi(args[4]);
 
     } else {
-      hostname = args[0];
-      port = atoi(args[1]);
+      hostname = args[1];
+      port = atoi(args[2]);
     }
   }
 };
@@ -59,8 +63,8 @@ enum SegmentType {
   PTYPE_NACK = 3,
 };
 
-std::vector<std::byte> read_payload_to_bytes(std::string file_name) {
-  uint32_t length = std::filesystem::file_size(file_name);
+std::vector<std::byte> read_payload_to_bytes(fs::path file_name) {
+  auto length = fs::file_size(file_name);
   if (length == 0) {
     return {};
   }
@@ -106,9 +110,10 @@ void payload_factory(BYTES buffer, CSTR payload, size_t payload_len) {
   buffer[crc2_offset + 3] = (crc2 >> 24) & 0xFF;
 }
 
-void ipv4UDP(const char *hostname, int port, std::string file) {
+void ipv4UDP(const char *hostname, int port, std::filesystem::path file) {
   std::vector<std::byte> payload = read_payload_to_bytes(file);
   uint32_t payload_size = std::filesystem::file_size(file);
+
   uint32_t buffer_size = BUFFER_META_DATA_SIZE + payload_size;
   unsigned char *buffer = new unsigned char[buffer_size];
 
@@ -137,9 +142,11 @@ void ipv4UDP(const char *hostname, int port, std::string file) {
 int main(int argc, char *argv[]) {
   // Parsing command line args:
   SenderArgs sender_args = SenderArgs(argc, argv);
+  std::cout << "HOSTNAME: " << sender_args.hostname << std::endl;
+  std::cout << "PORT: " << sender_args.port << std::endl;
+  std::cout << "FILEPATH: " << sender_args.file_path << std::endl;
 
   // Passing commandline args to ipv4UDP sender
-  ipv4UDP(sender_args.hostname, sender_args.port,
-          sender_args.file_path.c_str());
+  ipv4UDP(sender_args.hostname, sender_args.port, sender_args.file_path);
   return 0;
 }
