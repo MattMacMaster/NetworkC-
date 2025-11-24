@@ -24,7 +24,7 @@ using CBYTES = const unsigned char *; // just tryna shorten some code and make
 // Using static to make the constants public only to this file
 static const uint32_t MAX_PAYLOAD_SIZE = 4096;
 static const uint32_t CRC_1_BUFFER_INDEX = 8; // = 12 leads to crc error
-static const uint32_t PAYLOAD_START_INDEX = 12;
+static const uint32_t PAYLOAD_START_INDEX = 12; 
 static const uint32_t BUFFER_META_DATA_SIZE = 16; // size of all but payload
 
 // command line flags
@@ -76,16 +76,18 @@ std::vector<std::byte> read_payload_to_bytes(fs::path file_name) {
 
 void payload_factory(BYTES buffer, CSTR payload, size_t payload_len) {
   memset(buffer, 0, BUFFER_META_DATA_SIZE + payload_len);
+  //memset(buffer,0,payload_len);
   uint32_t payload_length = static_cast<uint32_t>(payload_len);
-  uint32_t crc1 = crc32(0L, Z_NULL, 0);
 
   PacketHeader header;
-
   header.setType(buffer, SegmentType::PTYPE_DATA);
   header.setTR(buffer, false);
   header.setLen(buffer, payload_length);
+  header.setSeq(buffer, 0);
+  header.setWin(buffer, 31);
 
   // Compute CRC1 over first 8 bytes (start of type ---> end of Timestamp)
+  uint32_t crc1 = crc32(0L, Z_NULL, 0);
   crc1 = crc32(crc1, buffer, CRC_1_BUFFER_INDEX);
   header.setCRC(buffer, crc1); // Store in little-endian
 
@@ -93,26 +95,51 @@ void payload_factory(BYTES buffer, CSTR payload, size_t payload_len) {
   if (payload_len > 0) {
     memcpy(buffer + 12, payload, payload_len);
   }
-
   // Compute CRC2 over the payload
   uint32_t crc2 = crc32(0L, Z_NULL, 0);
   if (payload_len > 0) {
     crc2 = crc32(crc2, reinterpret_cast<const unsigned char *>(payload),
                  payload_len);
+    size_t crc2_offset = 12 + payload_len;
+    buffer[crc2_offset]     = (crc2 >> 24) & 0xFF;
+    buffer[crc2_offset + 1] = (crc2 >> 16) & 0xFF;
+    buffer[crc2_offset + 2] = (crc2 >> 8) & 0xFF;
+    buffer[crc2_offset + 3] = crc2 & 0xFF;
   }
-
-  size_t crc2_offset = 12 + payload_len;
-  buffer[crc2_offset] = crc2 & 0xFF;
-  buffer[crc2_offset + 1] = (crc2 >> 8) & 0xFF;
-  buffer[crc2_offset + 2] = (crc2 >> 16) & 0xFF;
-  buffer[crc2_offset + 3] = (crc2 >> 24) & 0xFF;
 }
+
+void dead_factory(BYTES buffer) {
+  memset(buffer, 0, BUFFER_META_DATA_SIZE);
+  //memset(buffer,0,payload_len);
+
+  PacketHeader header;
+
+  header.setType(buffer, SegmentType::PTYPE_DATA);
+  header.setTR(buffer, false);
+  header.setLen(buffer, 0);
+  header.setSeq(buffer, 1);
+  header.setWin(buffer, 31);
+
+  // Compute CRC1 over first 8 bytes (start of type ---> end of Timestamp)
+  uint32_t crc1 = crc32(0L, Z_NULL, 0);
+  crc1 = crc32(crc1, buffer, CRC_1_BUFFER_INDEX);
+  header.setCRC(buffer, crc1); // Store in little-endian
+
+  // Copy payload immediately after header + CRC1
+  //Empty or 0's
+  //if (payload_len > 0) {
+  //  memcpy(buffer + 12, payload, payload_len);
+  //}
+  // Compute CRC2 over the payload
+}
+
 
 void ipv4UDP(const char *hostname, int port, fs::path file) {
   std::vector<std::byte> payload = read_payload_to_bytes(file);
   uint32_t payload_size = fs::file_size(file);
 
   uint32_t buffer_size = BUFFER_META_DATA_SIZE + payload_size;
+  //uint32_t buffer_size = payload_size;
   unsigned char *buffer = new unsigned char[buffer_size];
 
   int sockfd;
@@ -131,11 +158,80 @@ void ipv4UDP(const char *hostname, int port, fs::path file) {
   servaddr.sin_port = htons(port);
   servaddr.sin_addr.s_addr = inet_addr(hostname);
 
-  sendto(sockfd, (const char *)buffer, payload_size, 0,
+  //THE 1 MATTERS ALOT, its the ammount of expecting packets?
+  sendto(sockfd, (const char *)buffer, buffer_size, 0,
          (const struct sockaddr *)&servaddr, sizeof(servaddr));
 
+  std::cout << "Wait for 3 seconds to send dead packet\n" << std::endl;
+  // sleep will schedule rest of 
+  // activities after 5 seconds
+  sleep(3);
+  //Send Dead packet
+  uint32_t dead_buffer_size = BUFFER_META_DATA_SIZE;
+  unsigned char *deadbuffer = new unsigned char[dead_buffer_size];
+  dead_factory(deadbuffer);
+
+  sendto(sockfd, (const char *)deadbuffer, dead_buffer_size, 0,
+         (const struct sockaddr *)&servaddr, sizeof(servaddr));
+  
+         
+  std::cout << "Wait for 3 seconds for ack\n" << std::endl;
+  // sleep will schedule rest of 
+  // activities after 5 seconds
+  sleep(3);
   close(sockfd);
 }
+
+void ipv6UDP(const char *hostname, int port, fs::path file) {
+    std::vector<std::byte> payload = read_payload_to_bytes(file);
+    uint32_t payload_size = fs::file_size(file);
+
+    uint32_t buffer_size = BUFFER_META_DATA_SIZE + payload_size;
+    unsigned char *buffer = new unsigned char[buffer_size];
+
+    int sockfd;
+    if ((sockfd = socket(AF_INET6, SOCK_DGRAM, 0)) < 0) {
+        perror("socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    payload_factory(buffer, reinterpret_cast<const char *>(payload.data()), payload.size());
+
+    struct sockaddr_in6 servaddr;  // IPv6 structure
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin6_family = AF_INET6;      // IPv6
+    servaddr.sin6_port = htons(port);      // Port
+
+    if (inet_pton(AF_INET6, hostname, &servaddr.sin6_addr) <= 0) {
+        perror("Invalid IPv6 address");
+        exit(EXIT_FAILURE);
+    }
+
+    if (sendto(sockfd, buffer, buffer_size, 0,
+               (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+        perror("sendto failed");
+    }
+    std::cout << "Wait for 3 seconds to send dead packet\n" << std::endl;
+    // sleep will schedule rest of 
+    // activities after 5 seconds
+    sleep(3);
+    //Send Dead packet
+    uint32_t dead_buffer_size = BUFFER_META_DATA_SIZE;
+    unsigned char *deadbuffer = new unsigned char[dead_buffer_size];
+    dead_factory(deadbuffer);
+
+    sendto(sockfd, (const char *)deadbuffer, dead_buffer_size, 0,
+         (const struct sockaddr *)&servaddr, sizeof(servaddr));
+  
+         
+    std::cout << "Wait for 3 seconds for ack\n" << std::endl;
+    // sleep will schedule rest of 
+    // activities after 5 seconds
+    sleep(3);
+    close(sockfd);
+    delete[] buffer;
+}
+
 
 int main(int argc, char *argv[]) {
   // Parsing command line args:
@@ -145,6 +241,10 @@ int main(int argc, char *argv[]) {
   std::cout << "FILEPATH: " << sender_args.file_path << std::endl;
 
   // Passing commandline args to ipv4UDP sender
-  ipv4UDP(sender_args.hostname, sender_args.port, sender_args.file_path);
+  //ipv4UDP(sender_args.hostname, sender_args.port, sender_args.file_path);
+  //End comms packet
+  ipv6UDP(sender_args.hostname, sender_args.port, sender_args.file_path);
+  //End comms packet
+
   return 0;
 }
