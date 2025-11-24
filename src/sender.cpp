@@ -54,12 +54,25 @@ struct SenderArgs {
     }
   }
 };
-
+enum IPVersion { IPv4, IPv6, UNKNOWN };
 enum SegmentType {
   PTYPE_DATA = 1,
   PTYPE_ACK = 2,
   PTYPE_NACK = 3,
 };
+
+IPVersion detectIPVersion(const std::string& host) {
+    struct in_addr addr4;
+    struct in6_addr addr6;
+
+    if (inet_pton(AF_INET, host.c_str(), &addr4) == 1) {
+        return IPv4;
+    } else if (inet_pton(AF_INET6, host.c_str(), &addr6) == 1) {
+        return IPv6;
+    } else {
+        return UNKNOWN; // Could be a hostname that needs DNS resolution
+    }
+}
 
 std::vector<std::byte> read_payload_to_bytes(fs::path file_name) {
   auto length = fs::file_size(file_name);
@@ -124,13 +137,6 @@ void dead_factory(BYTES buffer) {
   uint32_t crc1 = crc32(0L, Z_NULL, 0);
   crc1 = crc32(crc1, buffer, CRC_1_BUFFER_INDEX);
   header.setCRC(buffer, crc1); // Store in little-endian
-
-  // Copy payload immediately after header + CRC1
-  //Empty or 0's
-  //if (payload_len > 0) {
-  //  memcpy(buffer + 12, payload, payload_len);
-  //}
-  // Compute CRC2 over the payload
 }
 
 
@@ -239,12 +245,14 @@ int main(int argc, char *argv[]) {
   std::cout << "HOSTNAME: " << sender_args.hostname << std::endl;
   std::cout << "PORT: " << sender_args.port << std::endl;
   std::cout << "FILEPATH: " << sender_args.file_path << std::endl;
-
+  IPVersion version = detectIPVersion(sender_args.hostname);
   // Passing commandline args to ipv4UDP sender
-  //ipv4UDP(sender_args.hostname, sender_args.port, sender_args.file_path);
-  //End comms packet
-  ipv6UDP(sender_args.hostname, sender_args.port, sender_args.file_path);
-  //End comms packet
-
+    switch(version) {
+      case IPv4: std::cout << sender_args.hostname << " is IPv4\n";
+      ipv4UDP(sender_args.hostname, sender_args.port, sender_args.file_path); break;
+      case IPv6: std::cout << sender_args.hostname << " is IPv6\n";
+      ipv6UDP(sender_args.hostname, sender_args.port, sender_args.file_path); break;
+      default:   std::cout << sender_args.hostname << " is unknown or a hostname\n"; break;
+    }
   return 0;
 }
