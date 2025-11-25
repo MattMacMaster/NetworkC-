@@ -14,29 +14,49 @@ TEST_DIR  := test
 BUILD_DIR := build
 
 # =============================
-# Targets and source discovery
+# Source discovery
 # =============================
-TARGETS   := test_headers
+SRC_CC    := $(wildcard $(SRC_DIR)/*.cc)
+SRC_CPP   := $(wildcard $(SRC_DIR)/*.cpp)
+SRC_FILES := $(SRC_CC) $(SRC_CPP)
 
-# Find source files
-SRC_FILES := $(wildcard $(SRC_DIR)/*.cc)
-OBJ_FILES := $(patsubst $(SRC_DIR)/%.cc,$(BUILD_DIR)/%.o,$(SRC_FILES))
+OBJ_CC    := $(patsubst $(SRC_DIR)/%.cc,$(BUILD_DIR)/%.o,$(SRC_CC))
+OBJ_CPP   := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRC_CPP))
+OBJ_FILES := $(OBJ_CC) $(OBJ_CPP)
 
-# Find test files
+# Sender / test separation
+SENDER_SRC := $(SRC_DIR)/sender.cpp
+SENDER_OBJ := $(BUILD_DIR)/sender.o
+CORE_OBJ   := $(filter-out $(SENDER_OBJ),$(OBJ_FILES))
+
+# Test files
 TEST_FILES := $(wildcard $(TEST_DIR)/*.cc)
 TEST_OBJ   := $(patsubst $(TEST_DIR)/%.cc,$(BUILD_DIR)/%.o,$(TEST_FILES))
-TEST_BIN   := $(BUILD_DIR)/test_headers  # Test binary
+TEST_BIN   := $(BUILD_DIR)/test_headers
+
+# Executables
+SENDER_BIN := sender
 
 # =============================
 # Default rule
 # =============================
-all: $(TARGETS)
+all: test_headers $(SENDER_BIN)
 
 # =============================
-# Link step for programs (test binary)
+# test_headers binary (build + top-level)
 # =============================
-$(TARGETS): $(OBJ_FILES) $(TEST_OBJ) | $(BUILD_DIR)
+$(TEST_BIN): $(CORE_OBJ) $(TEST_OBJ) | $(BUILD_DIR)
 	$(CXX) $^ -o $@ -lgtest -lgtest_main -pthread $(LDFLAGS)
+
+# Copy test binary to project root
+test_headers: $(TEST_BIN)
+	cp $(TEST_BIN) test_headers
+
+# =============================
+# sender binary (links -lz)
+# =============================
+$(SENDER_BIN): $(SENDER_OBJ) $(CORE_OBJ) | $(BUILD_DIR)
+	$(CXX) $^ -o $@ $(LDFLAGS) -lz
 
 # =============================
 # Compile rules
@@ -44,17 +64,17 @@ $(TARGETS): $(OBJ_FILES) $(TEST_OBJ) | $(BUILD_DIR)
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(CXX_INC) -c $< -o $@
 
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(CXX_INC) -c $< -o $@
+
 $(BUILD_DIR)/%.o: $(TEST_DIR)/%.cc | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(CXX_INC) -c $< -o $@
 
 # =============================
-# Test target (Google Test)
+# Test convenience target
 # =============================
-test: $(TEST_BIN)
-	$(TEST_BIN)
-
-$(TEST_BIN): $(TEST_OBJ) $(OBJ_FILES) | $(BUILD_DIR)
-	$(CXX) $^ -o $@ -lgtest -lgtest_main -pthread $(LDFLAGS)
+test: test_headers
+	./test_headers
 
 # =============================
 # Directory creation
@@ -66,6 +86,6 @@ $(BUILD_DIR):
 # Cleaning
 # =============================
 clean:
-	rm -rf $(BUILD_DIR) $(TARGETS)
+	rm -rf $(BUILD_DIR) test_headers $(SENDER_BIN)
 
 .PHONY: all clean test
