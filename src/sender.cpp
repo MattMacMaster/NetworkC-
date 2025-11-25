@@ -15,20 +15,15 @@
 
 namespace fs = std::filesystem;
 
-using CSTR = const char *;
-using BYTE = unsigned char;
-using BYTES = unsigned char *;
-using CBYTES = const unsigned char *; // just tryna shorten some code and make
-                                      // our program slightly more readable
+using BYTES = unsigned char *; // our program slightly more readable
 
 // Using static to make the constants public only to this file
 static const uint32_t MAX_PAYLOAD_SIZE = 4096;
 static const uint32_t CRC_1_BUFFER_INDEX = 8; // = 12 leads to crc error
-static const uint32_t PAYLOAD_START_INDEX = 12; 
+static const uint32_t PAYLOAD_START_INDEX = 12;
 static const uint32_t BUFFER_META_DATA_SIZE = 16; // size of all but payload
 
 // command line flags
-
 struct SenderArgs {
   const char *hostname;
   uint32_t port;
@@ -53,25 +48,38 @@ struct SenderArgs {
       port = atoi(args[2]);
     }
   }
+
+  void display() const {
+    std::cout << "HOSTNAME: " << hostname << '\n'
+              << "PORT: " << port << '\n'
+              << "FILEPATH: " << file_path << std::endl;
+  }
 };
-enum IPVersion { IPv4, IPv6, UNKNOWN };
+
+enum IPVersion {
+  // Enum for IP Type
+  IPv4,
+  IPv6,
+  UNKNOWN
+};
+
 enum SegmentType {
+  // Enum for type of data being sent
   PTYPE_DATA = 1,
   PTYPE_ACK = 2,
   PTYPE_NACK = 3,
 };
 
-IPVersion detectIPVersion(const std::string& host) {
-    struct in_addr addr4;
-    struct in6_addr addr6;
+IPVersion detect_ip_version(const std::string &host) {
+  struct in_addr addr4;
+  struct in6_addr addr6;
 
-    if (inet_pton(AF_INET, host.c_str(), &addr4) == 1) {
-        return IPv4;
-    } else if (inet_pton(AF_INET6, host.c_str(), &addr6) == 1) {
-        return IPv6;
-    } else {
-        return UNKNOWN; // Could be a hostname that needs DNS resolution
-    }
+  if (inet_pton(AF_INET, host.c_str(), &addr4) == 1) {
+    return IPVersion::IPv4;
+  } else if (inet_pton(AF_INET6, host.c_str(), &addr6) == 1) {
+    return IPVersion::IPv6;
+  }
+  return IPVersion::UNKNOWN;
 }
 
 std::vector<std::byte> read_payload_to_bytes(fs::path file_name) {
@@ -87,9 +95,8 @@ std::vector<std::byte> read_payload_to_bytes(fs::path file_name) {
   return buffer;
 }
 
-void payload_factory(BYTES buffer, CSTR payload, size_t payload_len) {
+void payload_factory(BYTES buffer, const char *payload, size_t payload_len) {
   memset(buffer, 0, BUFFER_META_DATA_SIZE + payload_len);
-  //memset(buffer,0,payload_len);
   uint32_t payload_length = static_cast<uint32_t>(payload_len);
 
   PacketHeader header;
@@ -114,7 +121,7 @@ void payload_factory(BYTES buffer, CSTR payload, size_t payload_len) {
     crc2 = crc32(crc2, reinterpret_cast<const unsigned char *>(payload),
                  payload_len);
     size_t crc2_offset = 12 + payload_len;
-    buffer[crc2_offset]     = (crc2 >> 24) & 0xFF;
+    buffer[crc2_offset] = (crc2 >> 24) & 0xFF;
     buffer[crc2_offset + 1] = (crc2 >> 16) & 0xFF;
     buffer[crc2_offset + 2] = (crc2 >> 8) & 0xFF;
     buffer[crc2_offset + 3] = crc2 & 0xFF;
@@ -123,7 +130,6 @@ void payload_factory(BYTES buffer, CSTR payload, size_t payload_len) {
 
 void dead_factory(BYTES buffer) {
   memset(buffer, 0, BUFFER_META_DATA_SIZE);
-  //memset(buffer,0,payload_len);
 
   PacketHeader header;
 
@@ -139,13 +145,10 @@ void dead_factory(BYTES buffer) {
   header.setCRC(buffer, crc1); // Store in little-endian
 }
 
-
 void ipv4UDP(const char *hostname, int port, fs::path file) {
   std::vector<std::byte> payload = read_payload_to_bytes(file);
   uint32_t payload_size = fs::file_size(file);
-
   uint32_t buffer_size = BUFFER_META_DATA_SIZE + payload_size;
-  //uint32_t buffer_size = payload_size;
   unsigned char *buffer = new unsigned char[buffer_size];
 
   int sockfd;
@@ -164,95 +167,79 @@ void ipv4UDP(const char *hostname, int port, fs::path file) {
   servaddr.sin_port = htons(port);
   servaddr.sin_addr.s_addr = inet_addr(hostname);
 
-  //THE 1 MATTERS ALOT, its the ammount of expecting packets?
+  // THE 1 MATTERS ALOT, its the ammount of expecting packets?
   sendto(sockfd, (const char *)buffer, buffer_size, 0,
          (const struct sockaddr *)&servaddr, sizeof(servaddr));
 
-  std::cout << "Wait for 3 seconds to send dead packet\n" << std::endl;
-  // sleep will schedule rest of 
-  // activities after 5 seconds
   sleep(3);
-  //Send Dead packet
+  // Send Dead packet
   uint32_t dead_buffer_size = BUFFER_META_DATA_SIZE;
   unsigned char *deadbuffer = new unsigned char[dead_buffer_size];
   dead_factory(deadbuffer);
 
   sendto(sockfd, (const char *)deadbuffer, dead_buffer_size, 0,
          (const struct sockaddr *)&servaddr, sizeof(servaddr));
-  
-         
-  std::cout << "Wait for 3 seconds for ack\n" << std::endl;
-  // sleep will schedule rest of 
-  // activities after 5 seconds
+
   sleep(3);
   close(sockfd);
 }
 
 void ipv6UDP(const char *hostname, int port, fs::path file) {
-    std::vector<std::byte> payload = read_payload_to_bytes(file);
-    uint32_t payload_size = fs::file_size(file);
+  std::vector<std::byte> payload = read_payload_to_bytes(file);
+  uint32_t payload_size = fs::file_size(file);
 
-    uint32_t buffer_size = BUFFER_META_DATA_SIZE + payload_size;
-    unsigned char *buffer = new unsigned char[buffer_size];
+  uint32_t buffer_size = BUFFER_META_DATA_SIZE + payload_size;
+  unsigned char *buffer = new unsigned char[buffer_size];
 
-    int sockfd;
-    if ((sockfd = socket(AF_INET6, SOCK_DGRAM, 0)) < 0) {
-        perror("socket creation failed");
-        exit(EXIT_FAILURE);
-    }
+  int sockfd;
+  if ((sockfd = socket(AF_INET6, SOCK_DGRAM, 0)) < 0) {
+    perror("socket creation failed");
+    exit(EXIT_FAILURE);
+  }
 
-    payload_factory(buffer, reinterpret_cast<const char *>(payload.data()), payload.size());
+  payload_factory(buffer, reinterpret_cast<const char *>(payload.data()),
+                  payload.size());
 
-    struct sockaddr_in6 servaddr;  // IPv6 structure
-    memset(&servaddr, 0, sizeof(servaddr));
-    servaddr.sin6_family = AF_INET6;      // IPv6
-    servaddr.sin6_port = htons(port);      // Port
+  struct sockaddr_in6 servaddr; // IPv6 structure
+  memset(&servaddr, 0, sizeof(servaddr));
+  servaddr.sin6_family = AF_INET6;  // IPv6
+  servaddr.sin6_port = htons(port); // Port
 
-    if (inet_pton(AF_INET6, hostname, &servaddr.sin6_addr) <= 0) {
-        perror("Invalid IPv6 address");
-        exit(EXIT_FAILURE);
-    }
+  if (inet_pton(AF_INET6, hostname, &servaddr.sin6_addr) <= 0) {
+    perror("Invalid IPv6 address");
+    exit(EXIT_FAILURE);
+  }
 
-    if (sendto(sockfd, buffer, buffer_size, 0,
-               (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
-        perror("sendto failed");
-    }
-    std::cout << "Wait for 3 seconds to send dead packet\n" << std::endl;
-    // sleep will schedule rest of 
-    // activities after 5 seconds
-    sleep(3);
-    //Send Dead packet
-    uint32_t dead_buffer_size = BUFFER_META_DATA_SIZE;
-    unsigned char *deadbuffer = new unsigned char[dead_buffer_size];
-    dead_factory(deadbuffer);
+  if (sendto(sockfd, buffer, buffer_size, 0, (struct sockaddr *)&servaddr,
+             sizeof(servaddr)) < 0) {
+    perror("sendto failed");
+  }
 
-    sendto(sockfd, (const char *)deadbuffer, dead_buffer_size, 0,
+  sleep(3);
+  // Send Dead packet
+  uint32_t dead_buffer_size = BUFFER_META_DATA_SIZE;
+  unsigned char *deadbuffer = new unsigned char[dead_buffer_size];
+  dead_factory(deadbuffer);
+
+  sendto(sockfd, (const char *)deadbuffer, dead_buffer_size, 0,
          (const struct sockaddr *)&servaddr, sizeof(servaddr));
-  
-         
-    std::cout << "Wait for 3 seconds for ack\n" << std::endl;
-    // sleep will schedule rest of 
-    // activities after 5 seconds
-    sleep(3);
-    close(sockfd);
-    delete[] buffer;
+
+  sleep(3);
+  close(sockfd);
+  delete[] buffer;
 }
 
-
 int main(int argc, char *argv[]) {
-  // Parsing command line args:
   SenderArgs sender_args = SenderArgs(argc, argv);
-  std::cout << "HOSTNAME: " << sender_args.hostname << std::endl;
-  std::cout << "PORT: " << sender_args.port << std::endl;
-  std::cout << "FILEPATH: " << sender_args.file_path << std::endl;
-  IPVersion version = detectIPVersion(sender_args.hostname);
-  // Passing commandline args to ipv4UDP sender
-    switch(version) {
-      case IPv4: std::cout << sender_args.hostname << " is IPv4\n";
-      ipv4UDP(sender_args.hostname, sender_args.port, sender_args.file_path); break;
-      case IPv6: std::cout << sender_args.hostname << " is IPv6\n";
-      ipv6UDP(sender_args.hostname, sender_args.port, sender_args.file_path); break;
-      default:   std::cout << sender_args.hostname << " is unknown or a hostname\n"; break;
-    }
-  return 0;
+  sender_args.display();
+  IPVersion version = detect_ip_version(sender_args.hostname);
+
+  if (version == IPVersion::IPv4) {
+    std::cout << sender_args.hostname << " is IPv4\n";
+    ipv4UDP(sender_args.hostname, sender_args.port, sender_args.file_path);
+  } else if (version == IPVersion::IPv6) {
+    std::cout << sender_args.hostname << " is IPv6\n";
+    ipv6UDP(sender_args.hostname, sender_args.port, sender_args.file_path);
+  } else
+    std::cout << sender_args.hostname << " is unknown or a hostname\n";
 }
