@@ -13,14 +13,26 @@
 
 namespace fs = std::filesystem;
 
-// Using static to make the constants public only to this file
-static constexpr uint32_t BUFFER_SIZE = 4096;
-static constexpr uint32_t CRC_1_BUFFER_INDEX = 8; // = 12 leads to crc error
-static constexpr uint32_t PAYLOAD_START_INDEX = 12;
-static constexpr uint32_t BUFFER_META_DATA_SIZE = 16; // size of all but payload
+// TODO:
+// - Test initial code, check if can communicate w/ receiver on lab computers
+// - Talk with robert on how the data file should be set up w/ ReceiverArgs
+// ---> should the command line create said file if it does not exist
+// ---> should the program only work if said file exists
+// - Update packet header to take out the payload
+// - Find out how to check crc on code
+//
+//
+// Additional Resources (aside from beej)
+// - https://www.yolinux.com/TUTORIALS/Sockets.html#DESCRIPTION
+// -
+// https://users.cs.jmu.edu/bernstdh/web/common/lectures/summary_unix_udp.php?utm_source=chatgpt.com
+// - https://www.tenouk.com/cnlinuxsockettutorials.html?utm_source=chatgpt.com
+// - https://www.educative.io/answers/how-to-implement-udp-sockets-in-c
 
-// command line flags
-// receiver [-f data_file] [-6] port
+static constexpr uint32_t BUFFER_SIZE = 4096;
+static constexpr uint32_t CRC_1_BUFFER_INDEX = 8;
+static constexpr uint32_t PAYLOAD_START_INDEX = 12;
+static constexpr uint32_t BUFFER_META_DATA_SIZE = 16;
 
 enum IPVersion { IPv4, IPv6 };
 
@@ -66,9 +78,8 @@ enum SegmentType {
 
 void ipv4UDP(int port_number, fs::path file) {
   char buffer[BUFFER_SIZE];
-  int socket_handle; // can change this back to the unix standard of fd
+  int socket_handle;
 
-  // AF_INET6 for ipv6
   // Think IPPROTO_IP macro / const = 0, if system does not work replace w/ 0
   if ((socket_handle = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP) < 0)) {
     close(socket_handle);
@@ -80,7 +91,6 @@ void ipv4UDP(int port_number, fs::path file) {
   memset(&server_address, 0, sizeof(server_address));
   memset(&client_address, 0, sizeof(client_address));
 
-  // Filling server information
   server_address.sin_family = AF_INET;
   server_address.sin_port = htons(port_number);
   server_address.sin_addr.s_addr = INADDR_ANY;
@@ -92,23 +102,23 @@ void ipv4UDP(int port_number, fs::path file) {
     exit(EXIT_FAILURE);
   }
 
+  listen(socket_handle, 5);
+
   socklen_t client_length = sizeof(client_address);
 
   int client_data =
       recvfrom(socket_handle, (char *)buffer, BUFFER_SIZE, MSG_WAITALL,
                (struct sockaddr *)&client_address, &client_length);
 
-  // Testing for data received
-  std::cout << client_data << std::endl;
+  std::cout << client_data << std::endl; // test data is received
 
   close(socket_handle);
 }
 
 void ipv6UDP(int port_number, fs::path file) {
   char buffer[BUFFER_SIZE];
-  int socket_handle; // can change this back to the unix standard of fd
+  int socket_handle;
 
-  // AF_INET6 for ipv6
   // Think IPPROTO_IP macro / const = 0, if system does not work replace w/ 0
   if ((socket_handle = socket(AF_INET6, SOCK_DGRAM, IPPROTO_IP) < 0)) {
     close(socket_handle);
@@ -120,7 +130,6 @@ void ipv6UDP(int port_number, fs::path file) {
   memset(&server_address, 0, sizeof(server_address));
   memset(&client_address, 0, sizeof(client_address));
 
-  // Filling server information
   server_address.sin_family = AF_INET6;
   server_address.sin_port = htons(port_number);
   server_address.sin_addr.s_addr = INADDR_ANY;
@@ -138,8 +147,7 @@ void ipv6UDP(int port_number, fs::path file) {
       recvfrom(socket_handle, (char *)buffer, BUFFER_SIZE, MSG_WAITALL,
                (struct sockaddr *)&client_address, &client_length);
 
-  // Testing for data received
-  std::cout << client_data << std::endl;
+  std::cout << client_data << std::endl; // test data is received
 
   close(socket_handle);
 }
