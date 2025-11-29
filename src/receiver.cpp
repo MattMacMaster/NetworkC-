@@ -80,16 +80,13 @@ void ipv4UDP(int port_number, fs::path file) {
   char buffer[BUFFER_SIZE];
   int socket_handle;
 
-  // Think IPPROTO_IP macro / const = 0, if system does not work replace w/ 0
-  if ((socket_handle = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP) < 0)) {
-    close(socket_handle);
+  if ((socket_handle = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
     perror("ERROR, socket creation failed");
     exit(EXIT_FAILURE);
   }
 
-  struct sockaddr_in server_address, client_address;
-  memset(&server_address, 0, sizeof(server_address));
-  memset(&client_address, 0, sizeof(client_address));
+  struct sockaddr_in server_address{}, client_address{};
+  socklen_t client_length = sizeof(client_address);
 
   server_address.sin_family = AF_INET;
   server_address.sin_port = htons(port_number);
@@ -102,12 +99,8 @@ void ipv4UDP(int port_number, fs::path file) {
     exit(EXIT_FAILURE);
   }
 
-  listen(socket_handle, 5);
-
-  socklen_t client_length = sizeof(client_address);
-
   int client_data =
-      recvfrom(socket_handle, (char *)buffer, BUFFER_SIZE, MSG_WAITALL,
+      recvfrom(socket_handle, buffer, BUFFER_SIZE, MSG_WAITALL,
                (struct sockaddr *)&client_address, &client_length);
 
   std::cout << client_data << std::endl; // test data is received
@@ -119,16 +112,13 @@ void ipv6UDP(int port_number, fs::path file) {
   char buffer[BUFFER_SIZE];
   int socket_handle;
 
-  // Think IPPROTO_IP macro / const = 0, if system does not work replace w/ 0
-  if ((socket_handle = socket(AF_INET6, SOCK_DGRAM, IPPROTO_IP) < 0)) {
-    close(socket_handle);
+  if ((socket_handle = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
     perror("ERROR, socket creation failed");
     exit(EXIT_FAILURE);
   }
 
-  struct sockaddr_in server_address, client_address;
-  memset(&server_address, 0, sizeof(server_address));
-  memset(&client_address, 0, sizeof(client_address));
+  struct sockaddr_in server_address{}, client_address{};
+  socklen_t client_length = sizeof(client_address);
 
   server_address.sin_family = AF_INET6;
   server_address.sin_port = htons(port_number);
@@ -141,10 +131,8 @@ void ipv6UDP(int port_number, fs::path file) {
     exit(EXIT_FAILURE);
   }
 
-  socklen_t client_length = sizeof(client_address);
-
   int client_data =
-      recvfrom(socket_handle, (char *)buffer, BUFFER_SIZE, MSG_WAITALL,
+      recvfrom(socket_handle, buffer, BUFFER_SIZE, MSG_WAITALL,
                (struct sockaddr *)&client_address, &client_length);
 
   std::cout << client_data << std::endl; // test data is received
