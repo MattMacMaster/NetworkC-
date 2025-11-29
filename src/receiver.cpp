@@ -68,6 +68,12 @@ struct ReceiverArgs {
       port_number = atoi(args[1]);
     }
   }
+
+  void display() const {
+    std::cout << "IP_VERSION: " << ip_version << '\n'
+              << "PORT: " << port_number << '\n'
+              << "FILEPATH: " << file_path << std::endl;
+  }
 };
 
 enum SegmentType {
@@ -76,14 +82,17 @@ enum SegmentType {
   PTYPE_NACK = 3,
 };
 
+void report_error(const char *error_msg) {
+  perror(error_msg);
+  exit(EXIT_FAILURE);
+}
+
 void ipv4UDP(int port_number, fs::path file) {
   char buffer[BUFFER_SIZE];
   int socket_handle;
 
-  if ((socket_handle = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
-    perror("ERROR, socket creation failed");
-    exit(EXIT_FAILURE);
-  }
+  if ((socket_handle = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
+    report_error("ERROR, socket creation failed");
 
   struct sockaddr_in server_address{}, client_address{};
   socklen_t client_length = sizeof(client_address);
@@ -95,8 +104,7 @@ void ipv4UDP(int port_number, fs::path file) {
   if (bind(socket_handle, (const struct sockaddr *)&server_address,
            sizeof(server_address)) < 0) {
     close(socket_handle);
-    perror("ERROR, bind failed");
-    exit(EXIT_FAILURE);
+    report_error("ERROR, socket binding failed");
   }
 
   int client_data =
@@ -112,10 +120,8 @@ void ipv6UDP(int port_number, fs::path file) {
   char buffer[BUFFER_SIZE];
   int socket_handle;
 
-  if ((socket_handle = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
-    perror("ERROR, socket creation failed");
-    exit(EXIT_FAILURE);
-  }
+  if ((socket_handle = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) < 0)
+    report_error("ERROR, socket creation failed");
 
   struct sockaddr_in server_address{}, client_address{};
   socklen_t client_length = sizeof(client_address);
@@ -127,8 +133,7 @@ void ipv6UDP(int port_number, fs::path file) {
   if (bind(socket_handle, (const struct sockaddr *)&server_address,
            sizeof(server_address)) < 0) {
     close(socket_handle);
-    perror("ERROR, bind failed");
-    exit(EXIT_FAILURE);
+    report_error("ERROR, socket binding failed");
   }
 
   int client_data =
@@ -142,6 +147,7 @@ void ipv6UDP(int port_number, fs::path file) {
 
 int main(int argc, char *argv[]) {
   ReceiverArgs receiver_args = ReceiverArgs(argc, argv);
+  receiver_args.display();
 
   if (receiver_args.ip_version == IPVersion::IPv4) {
     ipv4UDP(receiver_args.port_number, receiver_args.file_path);
