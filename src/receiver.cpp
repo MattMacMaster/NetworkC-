@@ -16,7 +16,7 @@
 
 namespace fs = std::filesystem;
 
-  //TODO - Fix IPv6 it doesnt even work at all - ugh
+  //TODO - Currently Writes the end of transmission file. Keep??
 
 
 // TODO:

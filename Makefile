@@ -16,68 +16,72 @@ BUILD_DIR := build
 # =============================
 # Source discovery
 # =============================
-SRC_CC    := $(wildcard $(SRC_DIR)/*.cc)
-SRC_CPP   := $(wildcard $(SRC_DIR)/*.cpp)
-SRC_FILES := $(SRC_CC) $(SRC_CPP)
+SRC_FILES := $(wildcard $(SRC_DIR)/*.cpp) $(wildcard $(SRC_DIR)/*.cc)
+OBJ_FILES := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(patsubst $(SRC_DIR)/%.cc,$(BUILD_DIR)/%.o,$(SRC_FILES)))
 
-OBJ_CC    := $(patsubst $(SRC_DIR)/%.cc,$(BUILD_DIR)/%.o,$(SRC_CC))
-OBJ_CPP   := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRC_CPP))
-OBJ_FILES := $(OBJ_CC) $(OBJ_CPP)
-
-# Sender / test separation
+# Identify sender / receiver objects
 SENDER_SRC := $(SRC_DIR)/sender.cpp
+RECEIVER_SRC := $(SRC_DIR)/receiver.cpp
+
 SENDER_OBJ := $(BUILD_DIR)/sender.o
-CORE_OBJ   := $(filter-out $(SENDER_OBJ),$(OBJ_FILES))
+RECEIVER_OBJ := $(BUILD_DIR)/receiver.o
 
-# Test files
-TEST_FILES := $(wildcard $(TEST_DIR)/*.cc)
-TEST_OBJ   := $(patsubst $(TEST_DIR)/%.cc,$(BUILD_DIR)/%.o,$(TEST_FILES))
-TEST_BIN   := $(BUILD_DIR)/test_headers
+# Remove sender.o from core for sender build
+CORE_OBJ := $(filter-out $(SENDER_OBJ) $(RECEIVER_OBJ),$(OBJ_FILES))
 
+# =============================
+# Test discovery
+# =============================
+TEST_SRC := $(wildcard $(TEST_DIR)/*.cc)
+TEST_OBJ := $(patsubst $(TEST_DIR)/%.cc,$(BUILD_DIR)/%.o,$(TEST_SRC))
+TEST_BIN := $(BUILD_DIR)/test_headers
+
+# =============================
 # Executables
+# =============================
 SENDER_BIN := sender
+RECEIVER_BIN := receiver
 
 # =============================
 # Default rule
 # =============================
-all: test_headers $(SENDER_BIN)
+all: $(SENDER_BIN) $(RECEIVER_BIN) test_headers
 
 # =============================
-# test_headers binary (build + top-level)
+# Build sender
 # =============================
-$(TEST_BIN): $(CORE_OBJ) $(TEST_OBJ) | $(BUILD_DIR)
-	$(CXX) $^ -o $@ -lgtest -lgtest_main -pthread $(LDFLAGS)
+$(SENDER_BIN): $(SENDER_OBJ) $(filter-out $(RECEIVER_OBJ),$(CORE_OBJ))
+	$(CXX) $^ -o $@ $(LDFLAGS) -lz
 
-# Copy test binary to project root
+# =============================
+# Build receiver
+# =============================
+$(RECEIVER_BIN): $(RECEIVER_OBJ) $(filter-out $(SENDER_OBJ),$(CORE_OBJ))
+	$(CXX) $^ -o $@ $(LDFLAGS) -lz
+
+# =============================
+# Build test binary
+# =============================
+$(TEST_BIN): $(CORE_OBJ) $(TEST_OBJ)
+	$(CXX) $^ -lz -o $@ -lgtest -lgtest_main -pthread $(LDFLAGS)
+
 test_headers: $(TEST_BIN)
 	cp $(TEST_BIN) test_headers
 
 # =============================
-# sender binary (links -lz)
-# =============================
-$(SENDER_BIN): $(SENDER_OBJ) $(CORE_OBJ) | $(BUILD_DIR)
-	$(CXX) $^ -o $@ $(LDFLAGS) -lz
-
-# =============================
 # Compile rules
 # =============================
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(CXX_INC) -c $< -o $@
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cc | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(CXX_INC) -c $< -o $@
 
 $(BUILD_DIR)/%.o: $(TEST_DIR)/%.cc | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(CXX_INC) -c $< -o $@
 
 # =============================
-# Test convenience target
-# =============================
-test: test_headers
-	./test_headers
-
-# =============================
-# Directory creation
+# Create build directory
 # =============================
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
@@ -86,6 +90,6 @@ $(BUILD_DIR):
 # Cleaning
 # =============================
 clean:
-	rm -rf $(BUILD_DIR) test_headers $(SENDER_BIN)
+	rm -rf $(BUILD_DIR) test_headers $(SENDER_BIN) $(RECEIVER_BIN)
 
 .PHONY: all clean test
