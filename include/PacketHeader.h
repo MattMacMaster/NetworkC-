@@ -57,6 +57,8 @@ public:
   //Added and testing
   void setTR(uchar *buffer, bool tr);
 
+  void setTimeStamp(uchar *buffer, unsigned long int timestamp);
+
 
   /*
   takes in buffer and value to set the sequence field in the packet header.

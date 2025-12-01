@@ -51,6 +51,14 @@ void PacketHeader::setLen(uchar *buffer, uint length) {
   buffer[3] = length;
 }
 
+void PacketHeader::setTimeStamp(uchar *buffer, unsigned long int timestamp) {
+  buffer[7] = timestamp;
+  buffer[6] = ((timestamp >> 8) & 0xFF);
+  buffer[5] = ((timestamp >> 16) & 0xFF);
+  buffer[4] = ((timestamp >> 24) & 0xFF);
+}
+
+
 void PacketHeader::setCRC(uchar *buffer, unsigned long int crc) {
   if (crc > 4294967295) {
     throw std::out_of_range("CRC value must be between 0 and 4294967295");
