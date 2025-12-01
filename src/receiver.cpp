@@ -16,6 +16,9 @@
 
 namespace fs = std::filesystem;
 
+  //TODO - Fix IPv6 it doesnt even work at all - ugh
+
+
 // TODO:
 // - Test initial code, check if can communicate w/ receiver on lab computers
 // - Talk with robert on how the data file should be set up w/ ReceiverArgs
@@ -165,12 +168,6 @@ while (true) {
         }
         out << std::endl;
     }
-  //Data Auditng needs to be done here now
-  //If its a bad CRC1, or CRC2 we need to drop the packet!!!
-  //TODO - CRC1 and 2 Checks, and/or drop packet - med
-  //     - Translate over the timestamp to the dead packet function - easy
-  //        Implemented a constant instead
-  //     - Fix IPv6 it doesnt even work at all - ugh
   uint32_t dead_buffer_size = BUFFER_META_DATA_SIZE;
   unsigned char *deadbuffer = new unsigned char[dead_buffer_size];
   dead_factory(deadbuffer,seq);
@@ -186,48 +183,74 @@ while (true) {
 void ipv6UDP(int port_number, fs::path file) {
   char buffer[BUFFER_SIZE];
   int socket_handle;
+  int seq = 1;
 
   if ((socket_handle = socket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP)) < 0)
     report_error("ERROR, socket creation failed");
 
-  struct sockaddr_in server_address{}, client_address{};
-  socklen_t client_length = sizeof(client_address);
+struct sockaddr_in6 server_address{};
+struct sockaddr_in6 client_address{};
+socklen_t client_length = sizeof(client_address);
 
-  server_address.sin_family = AF_INET6;
-  server_address.sin_port = htons(port_number);
-  server_address.sin_addr.s_addr = INADDR_ANY;
+server_address.sin6_family = AF_INET6;
+server_address.sin6_port = htons(port_number);
+server_address.sin6_addr = in6addr_any;  // IPv6 equivalent of INADDR_ANY
 
-  if (bind(socket_handle, (const struct sockaddr *)&server_address,
-           sizeof(server_address)) < 0) {
+if (bind(socket_handle,
+         (struct sockaddr*)&server_address,
+         sizeof(server_address)) < 0) {
     close(socket_handle);
     report_error("ERROR, socket binding failed");
-  }
+}
 
-  int client_data =
-      recvfrom(socket_handle, buffer, BUFFER_SIZE, MSG_WAITALL,
-               (struct sockaddr *)&client_address, &client_length);
+while (true) {
+    socklen_t client_length = sizeof(client_address);
+    int client_data = recvfrom(socket_handle, buffer, BUFFER_SIZE, MSG_WAITALL,
+                               (struct sockaddr*)&client_address, &client_length);
 
-
-if (client_data > 0) {
-    for (int i = 0; i < client_data; i++) {
-        std::cout << std::hex << std::uppercase
-                  << static_cast<int>(static_cast<unsigned char>(buffer[i])) << " ";
-    }
-    std::cout << std::dec << std::endl; // restore decimal
-    std::ofstream out(file, std::ios::out);
-    if (!out.is_open()) {
-        throw std::runtime_error("Failed to open file: " + file.string());
+    if (client_data < 0) {
+        std::cerr << "recvfrom failed\n";
+        continue;  // Skip to next iteration instead of breaking
     }
 
-    for (int i = 0; i < client_data; i++) {
-        out << std::hex << std::uppercase
-            << static_cast<int>(buffer[i]) << " ";
+    if (client_data > 0) {
+
+        // Print incoming bytes as binary
+        for (int i = 0; i < client_data; i++) {
+            for (int bit = 7; bit >= 0; bit--) {
+                std::cout << ((buffer[i] >> bit) & 1);
+            }
+            std::cout << " ";
+        }
+        std::cout << std::endl;
+
+        // Append instead of overwrite (use std::ios::app)
+        std::ofstream out(file, std::ios::out | std::ios::app);
+        if (!out.is_open()) {
+            throw std::runtime_error("Failed to open file: " + file.string());
+        }
+
+        // Write the same binary data to file
+        for (int i = 0; i < client_data; i++) {
+            for (int bit = 7; bit >= 0; bit--) {
+                out << ((buffer[i] >> bit) & 1);
+            }
+            out << " ";
+        }
+        out << std::endl;
     }
-    out << std::dec << std::endl; // reset formatting
-  }
-  //Data Auditng needs to be done here now
+  uint32_t dead_buffer_size = BUFFER_META_DATA_SIZE;
+  unsigned char *deadbuffer = new unsigned char[dead_buffer_size];
+  dead_factory(deadbuffer,seq);
+  seq = seq+1;
+  sendto(socket_handle, (const char *)deadbuffer, dead_buffer_size, 0,
+         (const struct sockaddr *)&client_address, sizeof(client_address));
+}
+
+  //Send acknowledgement packet as well before closing
   close(socket_handle);
 }
+
 
 int main(int argc, char *argv[]) {
   ReceiverArgs receiver_args = ReceiverArgs(argc, argv);
