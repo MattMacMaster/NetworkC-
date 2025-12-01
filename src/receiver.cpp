@@ -55,6 +55,7 @@ struct ReceiverArgs {
 
     if (args[1] == file_flag) {
       file_path = args[2];
+      ipv6_flag_index_location = 3;
       if (!fs::exists(file_path)) {
         throw std::runtime_error("Error, file (path) not found");
       }
@@ -70,9 +71,9 @@ struct ReceiverArgs {
   }
 
   void display() const {
-    std::cout << "IP_VERSION: " << ip_version << '\n'
-              << "PORT: " << port_number << '\n'
-              << "FILEPATH: " << file_path << std::endl;
+    std::cout << "IP_VERSION: " << this->ip_version << '\n'
+              << "PORT: " << this->port_number << '\n'
+              << "FILEPATH: " << this->file_path << std::endl;
   }
 };
 
