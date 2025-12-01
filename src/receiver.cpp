@@ -42,31 +42,31 @@ struct ReceiverArgs {
   uint32_t port_number;
 
   ReceiverArgs(int arg_count, char *args[]) {
-    std::string file_flag = "-f";
+    //std::string file_flag = "-f"; //We always want a file
     std::string ipv6_flag = "-6";
-    uint32_t ipv6_flag_index_location = 1;
+    uint32_t ipv6_flag_index_location = 3;
 
     if (arg_count < 2) {
       std::cerr
-          << "Usage: ./sender [-f data_file (Optional)] [-6 (Optional)] [port] "
+          << "Usage: ./receiver [-f data_file] [-6 (Optional)] [port] "
           << std::endl;
       std::exit(1);
     }
 
-    if (args[1] == file_flag) {
-      file_path = args[2];
-      ipv6_flag_index_location = 3;
-      if (!fs::exists(file_path)) {
-        throw std::runtime_error("Error, file (path) not found");
-      }
+    //Always want a file
+    file_path = args[2];
+    ipv6_flag_index_location = 3;
+    if (!fs::exists(file_path)) {
+      throw std::runtime_error("Error, file (path) not found");
     }
 
+    //ipv6 Currently Broken
     if (args[ipv6_flag_index_location] == ipv6_flag) {
       ip_version = IPVersion::IPv6;
       port_number = atoi(args[ipv6_flag_index_location + 1]);
     } else {
       ip_version = IPVersion::IPv4;
-      port_number = atoi(args[1]);
+      port_number = atoi(args[3]);
     }
   }
 
@@ -108,11 +108,17 @@ void ipv4UDP(int port_number, fs::path file) {
     report_error("ERROR, socket binding failed");
   }
 
-  int client_data =
-      recvfrom(socket_handle, buffer, BUFFER_SIZE, MSG_WAITALL,
-               (struct sockaddr *)&client_address, &client_length);
+int client_data = recvfrom(socket_handle, buffer, BUFFER_SIZE, MSG_WAITALL,
+                           (struct sockaddr*)&client_address, &client_length);
 
-  std::cout << client_data << std::endl; // test data is received
+if (client_data > 0) {
+    for (int i = 0; i < client_data; i++) {
+        std::cout << std::hex << std::uppercase
+                  << static_cast<int>(static_cast<unsigned char>(buffer[i])) << " ";
+    }
+    std::cout << std::dec << std::endl; // restore decimal
+}
+
 
   close(socket_handle);
 }
